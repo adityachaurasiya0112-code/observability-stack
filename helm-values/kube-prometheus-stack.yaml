@@ -1,0 +1,66 @@
+grafana:
+  adminPassword: "CHANGE_ME"
+  sidecar:
+    dashboards: { enabled: true, label: grafana_dashboard }
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+
+prometheus:
+  prometheusSpec:
+    retention: 5d
+    retentionSize: 5GB
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { memory: 400Mi }
+      limits: { memory: 1Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 8Gi } }
+
+alertmanager:
+  config:
+    global: { resolve_timeout: 5m }
+    route:
+      receiver: sns-alerts
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers: ['alertname="Watchdog"']
+          receiver: "null"
+        - matchers: ['severity="critical"']
+          receiver: sns-oncall
+          repeat_interval: 1h
+    receivers:
+      - name: "null"
+      - name: sns-alerts
+        sns_configs:
+          - topic_arn: arn:aws:sns:ap-south-1:ACCOUNT_ID:cpu-alert-topic
+            sigv4: { region: ap-south-1 }
+            subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+            message: '{{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}'
+            send_resolved: true
+      - name: sns-oncall
+        sns_configs:
+          - topic_arn: arn:aws:sns:ap-south-1:ACCOUNT_ID:cpu-alert-topic
+            sigv4: { region: ap-south-1 }
+            subject: '[CRITICAL][{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+            message: '{{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}'
+            send_resolved: true
+    inhibit_rules:
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: [alertname, namespace]
+
+kubeEtcd: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeProxy: { enabled: false }

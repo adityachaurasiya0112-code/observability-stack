@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-app-slo
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  groups:
+    - name: slo.recording
+      rules:
+        - record: slo:http_error_ratio:rate5m
+          expr: sum(rate(http_requests_total{job="demo-app",code=~"5.."}[5m])) / sum(rate(http_requests_total{job="demo-app"}[5m]))
+        - record: slo:http_error_ratio:rate30m
+          expr: sum(rate(http_requests_total{job="demo-app",code=~"5.."}[30m])) / sum(rate(http_requests_total{job="demo-app"}[30m]))
+        - record: slo:http_error_ratio:rate1h
+          expr: sum(rate(http_requests_total{job="demo-app",code=~"5.."}[1h])) / sum(rate(http_requests_total{job="demo-app"}[1h]))
+        - record: slo:http_error_ratio:rate6h
+          expr: sum(rate(http_requests_total{job="demo-app",code=~"5.."}[6h])) / sum(rate(http_requests_total{job="demo-app"}[6h]))
+        - record: slo:http_latency_p95:5m
+          expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="demo-app"}[5m])))
+    - name: slo.alerts
+      rules:
+        - alert: ErrorBudgetBurnFast
+          expr: slo:http_error_ratio:rate1h > (14.4 * 0.005) and slo:http_error_ratio:rate5m > (14.4 * 0.005)
+          for: 2m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "demo-app error budget tezi se jal raha hai (14.4x burn)"
+        - alert: ErrorBudgetBurnSlow
+          expr: slo:http_error_ratio:rate6h > (6 * 0.005) and slo:http_error_ratio:rate30m > (6 * 0.005)
+          for: 15m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "demo-app error budget slow burn (6x)"
+        - alert: HighLatencyP95
+          expr: slo:http_latency_p95:5m > 0.3
+          for: 5m
+          labels:
+            severity: warning
+            team: backend
+          annotations:
+            summary: "demo-app p95 latency 300ms se upar"
